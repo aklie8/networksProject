@@ -60,7 +60,55 @@ struct config * createConfig(char * json_str){
       config->dest_UDP_port = subObject->valueint;
     }
   }
+
+  if(subObject = cJSON_GetObjectItem(json, "dest_TCP_head_port")){
+    if(cJSON_IsNumber(subObject)){
+      config->dest_TCP_head_port = subObject->valueint;
+    }
+  }
  
+  if(subObject = cJSON_GetObjectItem(json, "dest_TCP_tail_port")){
+    if(cJSON_IsNumber(subObject)){
+      config->dest_TCP_tail_port = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "TCP_pre_probing_port")){
+    if(cJSON_IsNumber(subObject)){
+      config->TCP_pre_probing_port = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "TCP_post_probing_port")){
+    if(cJSON_IsNumber(subObject)){
+      config->TCP_post_probing_port = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "UDP_payload_size")){
+    if(cJSON_IsNumber(subObject)){
+      config->UDP_payload_size = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "inter_measurement_time")){
+    if(cJSON_IsNumber(subObject)){
+      config->inter_measurement_time = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "UDP_packet_count")){
+    if(cJSON_IsNumber(subObject)){
+      config->UDP_packet_count = subObject->valueint;
+    }
+  }
+
+  if(subObject = cJSON_GetObjectItem(json, "UDP_packets_TTL")){
+    if(cJSON_IsNumber(subObject)){
+      config->UDP_packets_TTL = subObject->valueint;
+    }
+  }
+
   cJSON_Delete(json);
   return config;
 }
