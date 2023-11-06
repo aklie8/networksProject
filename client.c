@@ -1,5 +1,6 @@
 #include<stdio.h>
 #include<stdlib.h>
+#include "common.h"
 
 int main(int argc, char * argv[]){
   if(argc != 2){
@@ -30,8 +31,10 @@ int main(int argc, char * argv[]){
 
   fclose(config_file);
 
-  printf("%s\n", data);
-  
+  struct config * config = createConfig(data);
+  printf("%d\n" ,  config->src_port);
+  freeConfig(config);
+
   free(data);
 }
 
