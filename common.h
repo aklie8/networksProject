@@ -16,4 +16,6 @@ struct config * createConfig(char * json_str);
 
 void freeConfig (struct config * config);
 
+void sendConfig (struct config * config, char * json_str);
 
+struct config * receiveConfig (char * port);
