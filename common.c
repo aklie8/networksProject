@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
@@ -51,7 +52,7 @@ struct config * createConfig(char * json_str){
   }
   if(subObject = cJSON_GetObjectItem(json, "server_IP")){
     if(cJSON_IsString(subObject)){
-      strcpy(config->server_IP, subObject->string);
+      strcpy(config->server_IP, subObject->valuestring);
     }
   }
   else{
@@ -199,7 +200,6 @@ int createServerTCPSocket(char * port)
 int createClientTCPSocket(char * port, char * ip_addr)
 {
 	int sockfd, numbytes;  
-	char buf[MAXDATASIZE];
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
 	char s[INET6_ADDRSTRLEN];
@@ -209,7 +209,8 @@ int createClientTCPSocket(char * port, char * ip_addr)
 	hints.ai_socktype = SOCK_STREAM;
 
 	if ((rv = getaddrinfo(ip_addr, port, &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		printf("%s %s\n", ip_addr , port);
+                fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
 
@@ -232,7 +233,7 @@ int createClientTCPSocket(char * port, char * ip_addr)
 
 	if (p == NULL) {
 		fprintf(stderr, "client: failed to connect\n");
-		return 2;
+		return -1;
 	}
 
 	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
@@ -241,25 +242,14 @@ int createClientTCPSocket(char * port, char * ip_addr)
 
 	freeaddrinfo(servinfo); // all done with this structure
 
-	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-	    perror("recv");
-	    exit(1);
-	}
-
-	buf[numbytes] = '\0';
-
-	printf("client: received '%s'\n",buf);
-
-	close(sockfd);
-
-	return 0;
+        return sockfd;
 }
 
 
 struct config * receiveConfig (char * port){
   char s[INET6_ADDRSTRLEN];
   socklen_t sin_size;
-  struct sockaddr_storage their_addr; // connector's address information
+  struct sockaddr_storage their_addr;  
   int sockfd = createServerTCPSocket(port);
 
   sin_size = sizeof their_addr;
@@ -271,7 +261,7 @@ struct config * receiveConfig (char * port){
 
   inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr),s, sizeof(s));
   printf("server: got connection from %s\n", s);
-  close(sockfd); // child doesn't need the listener
+  close(sockfd); 
 
   char buffer[10000];
   memset (buffer, '\0', 10000); 
@@ -281,10 +271,76 @@ struct config * receiveConfig (char * port){
     exit(1);
   }
 
-  close(new_fd);  // parent doesn't need this
+  close(new_fd);  
   printf("%s\n", buffer);
   return createConfig(buffer);
 }
 
 void sendConfig (struct config * config, char * json_str){
+  char port[6];
+  sprintf(port, "%d", config->TCP_pre_probing_port);
+ 
+  int sockfd = createClientTCPSocket(port, config->server_IP);
+  
+  if ((send(sockfd, json_str, strlen(json_str), 0)) == -1) {
+    perror("send\n");
+    exit(1);
+  }
+  
+
+  printf("config sent \n");
+
+  close(sockfd);
 }
+
+void sendResults(struct config * config, bool compression_detected){
+  char s[INET6_ADDRSTRLEN];
+  socklen_t sin_size;
+  struct sockaddr_storage their_addr; // connector's address information
+  char port[6];
+  sprintf(port, "%d", config->TCP_post_probing_port);
+  int sockfd = createServerTCPSocket(port);
+
+  sin_size = sizeof their_addr;
+  int new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+  if (new_fd == -1) {
+    perror("accept");
+    exit(1);
+  }
+
+  inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr),s, sizeof(s));
+  printf("server: got connection from %s\n", s);
+  close(sockfd); 
+
+
+  if (send(new_fd, (compression_detected ? "Compression Detected\n": "No Compression Detected\n"), 50,0) == -1){
+    perror("recv failed to receive data");
+    exit(1);
+  }
+
+  close(new_fd); 
+}
+
+void receiveResults(struct config * config){
+  char port[6];
+  char buf[51];
+  memset(buf, '\0', 51);
+  sprintf(port, "%d", config->TCP_post_probing_port);
+ 
+  int sockfd = createClientTCPSocket(port, config->server_IP);
+ 
+  while(sockfd == -1){
+    sleep(1);
+    printf("Retrying Connection\n");
+    sockfd = createClientTCPSocket(port, config->server_IP);
+  }
+
+  if ((recv(sockfd, buf, 50, 0)) == -1) {
+    perror("recv");
+    exit(1);
+  }
+  printf("%s", buf);
+}
+
+
+

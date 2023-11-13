@@ -16,5 +16,6 @@ int main(int argc, char * argv[]){
   }
 
   struct config * config = receiveConfig(TCP_port);
-
+  sendResults(config, true);
+  freeConfig(config);
 }

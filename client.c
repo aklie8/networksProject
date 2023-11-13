@@ -22,19 +22,21 @@ int main(int argc, char * argv[]){
   int file_size = ftell(config_file);
   rewind(config_file);
 
-  char * data = (char *) calloc(1, file_size + 1);
+  char * file_data = (char *) calloc(1, file_size + 1);
  
-  if(fread(data, file_size, 1, config_file) != 1){
+  if(fread(file_data, file_size, 1, config_file) != 1){
     printf("failed to read file\n");
     return 1;
   }
 
   fclose(config_file);
 
-  struct config * config = createConfig(data);
+  struct config * config = createConfig(file_data);
   printf("%d\n" ,  config->src_port);
+  sendConfig(config, file_data);
+  free(file_data);
+  
+  receiveResults(config);
   freeConfig(config);
-
-  free(data);
 }
 

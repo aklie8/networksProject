@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 struct config{
   char server_IP [32];
   int src_port;
@@ -19,3 +21,8 @@ void freeConfig (struct config * config);
 void sendConfig (struct config * config, char * json_str);
 
 struct config * receiveConfig (char * port);
+
+
+void sendResults(struct config * config, bool compression_detected);
+
+void receiveResults(struct config * config);
