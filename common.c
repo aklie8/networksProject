@@ -343,4 +343,116 @@ void receiveResults(struct config * config){
 }
 
 
+int createUdpListener(char * port)
+{
+	int sockfd;
+	struct addrinfo hints, *servinfo, *p;
+	int rv;
+	int numbytes;
+	char s[INET6_ADDRSTRLEN];
 
+	memset(&hints, 0, sizeof hints);
+	hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_flags = AI_PASSIVE; // use my IP
+
+	if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		exit(1);;
+	}
+
+	// loop through all the results and bind to the first we can
+	for(p = servinfo; p != NULL; p = p->ai_next) {
+		if ((sockfd = socket(p->ai_family, p->ai_socktype,
+				p->ai_protocol)) == -1) {
+			perror("listener: socket");
+			continue;
+		}
+
+		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+			close(sockfd);
+			perror("listener: bind");
+			continue;
+		}
+
+		break;
+	}
+
+	if (p == NULL) {
+		fprintf(stderr, "listener: failed to bind socket\n");
+		exit(2);
+	}
+
+	freeaddrinfo(servinfo);
+
+	printf("listener: waiting to recvfrom...\n");
+	
+	return sockfd;
+}
+
+int createUdpSender(char * port, char * host)
+{
+	int sockfd;
+	struct addrinfo hints, *servinfo, *p;
+	int rv;
+	int numbytes;
+
+	memset(&hints, 0, sizeof hints);
+	hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+	hints.ai_socktype = SOCK_DGRAM;
+
+	if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		return 1;
+	}
+
+	// loop through all the results and make a socket
+	for(p = servinfo; p != NULL; p = p->ai_next) {
+		if ((sockfd = socket(p->ai_family, p->ai_socktype,
+				p->ai_protocol)) == -1) {
+			perror("talker: socket");
+			continue;
+		}
+
+		break;
+	}
+
+	if (p == NULL) {
+		fprintf(stderr, "talker: failed to create socket\n");
+		return 2;
+	}
+
+        connect(sockfd, p->ai_addr, p->ai_addrlen);
+
+	if ((numbytes = send(sockfd, "message here", strlen("message here"), 0)) == -1) {
+		perror("talker: sendto");
+		exit(1);
+	}
+
+	freeaddrinfo(servinfo);
+
+	printf("talker: sent %d bytes to %s\n", numbytes, host);
+	close(sockfd);
+
+	return 0;
+}
+
+//method that dtermines if packet compression exists
+bool processPacketTrains(struct config * config){
+  char port[6];
+  sprintf(port, "%d",config->dest_UDP_port);
+  char * buf = calloc(1, config->UDP_payload_size + 1);  
+  int sockfd = createUdpListener(port);
+  int numbytes; 
+  if ((numbytes = recvfrom(sockfd, buf, config->UDP_payload_size, 0, NULL, NULL)) == -1) {
+    perror("recvfrom");
+    exit(1);
+  }
+
+  printf("listener: packet is %d bytes long\n", numbytes);
+  buf[numbytes] = '\0';
+  printf("listener: packet contains \"%s\"\n", buf);
+
+  close(sockfd);
+  free(buf);
+}

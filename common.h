@@ -26,3 +26,5 @@ struct config * receiveConfig (char * port);
 void sendResults(struct config * config, bool compression_detected);
 
 void receiveResults(struct config * config);
+
+bool processPacketTrains(struct config * config);

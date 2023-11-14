@@ -9,13 +9,14 @@ int main(int argc, char * argv[]){
   }
 
   char * TCP_port = argv[1];
- // printf("%d\n", TCP_port);
 
   if(atoi(TCP_port) > 65535 || atoi(TCP_port) <= 0){
     printf("Invalid Port\n");
   }
 
   struct config * config = receiveConfig(TCP_port);
-  sendResults(config, true);
+  bool hasCompression = processPacketTrains(config);
+ 
+  sendResults(config, hasCompression);
   freeConfig(config);
 }
