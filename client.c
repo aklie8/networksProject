@@ -35,8 +35,9 @@ int main(int argc, char * argv[]){
   printf("%d\n" ,  config->src_port);
   sendConfig(config, file_data);
   free(file_data);
-  
+  sendPacketTrains(config);
   receiveResults(config);
   freeConfig(config);
+  
 }
 

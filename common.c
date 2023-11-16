@@ -423,18 +423,8 @@ int createUdpSender(char * port, char * host)
 	}
 
         connect(sockfd, p->ai_addr, p->ai_addrlen);
-
-	if ((numbytes = send(sockfd, "message here", strlen("message here"), 0)) == -1) {
-		perror("talker: sendto");
-		exit(1);
-	}
-
-	freeaddrinfo(servinfo);
-
-	printf("talker: sent %d bytes to %s\n", numbytes, host);
-	close(sockfd);
-
-	return 0;
+        freeaddrinfo(servinfo); 
+        return sockfd;
 }
 
 //method that dtermines if packet compression exists
@@ -443,16 +433,52 @@ bool processPacketTrains(struct config * config){
   sprintf(port, "%d",config->dest_UDP_port);
   char * buf = calloc(1, config->UDP_payload_size + 1);  
   int sockfd = createUdpListener(port);
-  int numbytes; 
-  if ((numbytes = recvfrom(sockfd, buf, config->UDP_payload_size, 0, NULL, NULL)) == -1) {
+  int numbytes;
+ 
+  while ((numbytes = recvfrom(sockfd, buf, config->UDP_payload_size, 0, NULL, NULL)) != -1) {
+    short id = ntohs(*((short *) buf));
+    printf("Received packet with id: %hd\n", id);
+  }
+
+  if(numbytes == -1){
     perror("recvfrom");
     exit(1);
   }
+ 
+  close(sockfd);
+  free(buf);
+}
 
-  printf("listener: packet is %d bytes long\n", numbytes);
-  buf[numbytes] = '\0';
-  printf("listener: packet contains \"%s\"\n", buf);
-
+void sendPacketTrains(struct config * config){
+  sleep(1);
+  char port[6];
+  sprintf(port, "%d",config->dest_UDP_port);
+  int numbytes = 0;
+ 
+  int sockfd = createUdpSender(port, config->server_IP);
+  //TODO handle non fragmentation
+  char * buf = calloc(1, config->UDP_payload_size + 1);
+  for(short id = 0; id < config->UDP_packet_count; id++){
+    *((short *)buf) = htons(id);
+    if ((numbytes = send(sockfd, buf, config->UDP_payload_size, 0)) == -1) {
+      perror("send");
+      exit(1);
+    }
+  }
+  sleep(config->inter_measurement_time);
+  FILE * randomFile = fopen("/dev/urandom", "r"); 
+  if(randomFile == NULL){
+    printf("failed to open /dev/urandom\n");
+  }
+  for(short id = 0; id < config->UDP_packet_count; id++){
+    *((short *)buf) = htons(id);
+    fread(buf + 2, config->UDP_payload_size -2, 1, randomFile);
+    if ((numbytes = send(sockfd, buf, config->UDP_payload_size, 0)) == -1) {
+      perror("send");
+      exit(1);
+    }
+  }
+  fclose(randomFile);
   close(sockfd);
   free(buf);
 }

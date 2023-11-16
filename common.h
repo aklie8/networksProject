@@ -28,3 +28,5 @@ void sendResults(struct config * config, bool compression_detected);
 void receiveResults(struct config * config);
 
 bool processPacketTrains(struct config * config);
+
+void sendPacketTrains(struct config * config);
