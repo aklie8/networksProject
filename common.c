@@ -11,7 +11,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
-
+#include <sys/time.h>
 #include "common.h"
 #include "cJSON.h"
 /*
@@ -384,8 +384,6 @@ int createUdpListener(char * port)
 	}
 
 	freeaddrinfo(servinfo);
-
-	printf("listener: waiting to recvfrom...\n");
 	
 	return sockfd;
 }
@@ -427,26 +425,80 @@ int createUdpSender(char * port, char * host)
         return sockfd;
 }
 
+long long getTimeMicros(){
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  long long result = time.tv_sec;
+  result *= 1000000;
+  result += time.tv_usec;
+  return result;
+}
+
 //method that dtermines if packet compression exists
 bool processPacketTrains(struct config * config){
+  long long firstTrainStart = 0;
+  long long firstTrainEnd = 0;
+  long long secondTrainStart = 0;
+  long long secondTrainEnd = 0;
+  
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   char * buf = calloc(1, config->UDP_payload_size + 1);  
   int sockfd = createUdpListener(port);
   int numbytes;
- 
+  bool isSecondTrain = false;
+  int lastID = 0;
+  
+  printf("Listening for first train\n");
+
   while ((numbytes = recvfrom(sockfd, buf, config->UDP_payload_size, 0, NULL, NULL)) != -1) {
     short id = ntohs(*((short *) buf));
-    printf("Received packet with id: %hd\n", id);
-  }
+ 
+    if(id < lastID){
+      printf("Began receiving second train\n");
+      isSecondTrain = true;
+      struct timeval timeout;
+      timeout.tv_sec = 5;
+      timeout.tv_usec = 0;
 
+      if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout,sizeof timeout) < 0){
+        perror("setsockopt failed\n");
+      }
+    }
+    lastID = id;
+   
+    if(firstTrainStart == 0 && !isSecondTrain){
+      firstTrainStart = getTimeMicros();
+    }
+    if(!isSecondTrain){
+      firstTrainEnd = getTimeMicros();
+    }
+
+    if(secondTrainStart == 0 && isSecondTrain){
+      secondTrainStart = getTimeMicros();
+    }
+    if(isSecondTrain){
+      secondTrainEnd = getTimeMicros();
+    }
+  
+    if(isSecondTrain && id == config->UDP_packet_count - 1){
+      break;
+    }
+  }
+  
   if(numbytes == -1){
-    perror("recvfrom");
-    exit(1);
+    printf("Did not find second packet train end\n");
+    
   }
  
   close(sockfd);
   free(buf);
+
+  long long firstTrainDeltaMs = (firstTrainEnd - firstTrainStart) / 1000;
+  long long secondTrainDeltaMs = (secondTrainEnd - secondTrainStart) / 1000;
+  printf("first train transmitted in %lld milliseconds\n", firstTrainDeltaMs);
+  printf("second train transmitted in %lld milliseconds\n", secondTrainDeltaMs);
+  return secondTrainDeltaMs - firstTrainDeltaMs > 100;
 }
 
 void sendPacketTrains(struct config * config){
@@ -456,7 +508,11 @@ void sendPacketTrains(struct config * config){
   int numbytes = 0;
  
   int sockfd = createUdpSender(port, config->server_IP);
-  //TODO handle non fragmentation
+ 
+  //Configuring the socket to set non fragmentation
+  int val = IP_PMTUDISC_DO;
+  setsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+
   char * buf = calloc(1, config->UDP_payload_size + 1);
   for(short id = 0; id < config->UDP_packet_count; id++){
     *((short *)buf) = htons(id);
