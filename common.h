@@ -30,3 +30,5 @@ void receiveResults(struct config * config);
 bool processPacketTrains(struct config * config);
 
 void sendPacketTrains(struct config * config);
+
+long long standAloneSendTrain(struct config* config, bool entropy);

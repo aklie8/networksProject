@@ -388,12 +388,19 @@ int createUdpListener(char * port)
 	return sockfd;
 }
 
-int createUdpSender(char * port, char * host)
+struct senderInfo{
+  int sockfd;
+  struct addrinfo* p;
+  struct addrinfo* servinfo;
+};
+
+struct senderInfo createUdpSender(char * port, char * host, bool shouldConnect)
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
 	int numbytes;
+        struct senderInfo result;
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET; // set to AF_INET to use IPv4
@@ -401,7 +408,8 @@ int createUdpSender(char * port, char * host)
 
 	if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
+		result.sockfd = 1;
+                return result;
 	}
 
 	// loop through all the results and make a socket
@@ -417,12 +425,18 @@ int createUdpSender(char * port, char * host)
 
 	if (p == NULL) {
 		fprintf(stderr, "talker: failed to create socket\n");
-		return 2;
+		result.sockfd = 2;
+                return result;
 	}
-
-        connect(sockfd, p->ai_addr, p->ai_addrlen);
-        freeaddrinfo(servinfo); 
-        return sockfd;
+        
+        if(shouldConnect){
+          connect(sockfd, p->ai_addr, p->ai_addrlen);
+        }
+        //freeaddrinfo(servinfo); 
+        result.sockfd = sockfd;
+        result.servinfo = servinfo;
+        result.p = p;
+        return result;
 }
 
 long long getTimeMicros(){
@@ -506,9 +520,10 @@ void sendPacketTrains(struct config * config){
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   int numbytes = 0;
- 
-  int sockfd = createUdpSender(port, config->server_IP);
- 
+  
+  struct senderInfo sockinfo = createUdpSender(port, config->server_IP, true);
+  int sockfd = sockinfo.sockfd;
+
   //Configuring the socket to set non fragmentation
   int val = IP_PMTUDISC_DO;
   setsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
@@ -536,5 +551,51 @@ void sendPacketTrains(struct config * config){
   }
   fclose(randomFile);
   close(sockfd);
+  freeaddrinfo(sockinfo.servinfo); 
   free(buf);
+  
 }
+
+long long standAloneSendTrain(struct config* config, bool entropy){
+  //TODO head syn
+  char port[6];
+  sprintf(port, "%d",config->dest_UDP_port);
+  int numbytes = 0;
+ 
+  struct senderInfo sockinfo = createUdpSender(port, config->server_IP, false);
+  int sockfd = sockinfo.sockfd;
+
+  //Configuring the socket to set non fragmentation
+  int val = IP_PMTUDISC_DO;
+  setsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+  
+  setsockopt(sockfd, IPPROTO_IP, IP_TTL, &config->UDP_packets_TTL, sizeof(int));
+  char * buf = calloc(1, config->UDP_payload_size + 1);
+
+  FILE * randomFile = fopen("/dev/urandom", "r");  
+  if(randomFile == NULL){
+    printf("failed to open /dev/urandom\n");
+  }
+ 
+  for(short id = 0; id < config->UDP_packet_count; id++){
+    *((short *)buf) = htons(id);
+    if(entropy){
+      fread(buf + 2, config->UDP_payload_size -2, 1, randomFile);
+    }
+    if ((numbytes = sendto(sockfd, buf, config->UDP_payload_size, 0, sockinfo.p->ai_addr, sockinfo.p->ai_addrlen)) == -1) {
+      perror("send");
+      exit(1);
+    }
+  }
+  
+  fclose(randomFile);
+  close(sockfd);
+  freeaddrinfo(sockinfo.servinfo); 
+  free(buf);
+  //TODO tail syn
+
+  //TODO measure Time to receive RTS packets 
+
+  //TODO Calculate and return the difference in miliseconds
+}
+
