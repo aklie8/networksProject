@@ -33,7 +33,7 @@ main (void)
 			   at its beginning, and a tcp header structure after
 			   that to write the header values into it */
   struct ip *iph = (struct ip *) datagram;
-  struct tcphdr *tcph = (struct tcphdr *) datagram + sizeof (struct ip);
+  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
   struct sockaddr_in sin;
 			/* the sockaddr_in containing the dest. address is used
 			   in sendto() to determine the datagrams path */
@@ -62,7 +62,7 @@ main (void)
   tcph->th_seq = random ();/* in a SYN packet, the sequence is a random */
   tcph->th_ack = 0;/* number, and the ack sequence is 0 in the 1st packet */
   tcph->th_x2 = 0;
-  tcph->th_off = 0;		/* first and only tcp segment */
+  tcph->th_off = 5;		/* first and only tcp segment */
   tcph->th_flags = TH_SYN;	/* initial connection request */
   tcph->th_win = htonl (65535);	/* maximum allowed window size */
   tcph->th_sum = 0;/* if you set a checksum to zero, your kernel's IP stack
@@ -95,6 +95,7 @@ main (void)
 	printf ("error\n");
       }
       else
+      break;
 	printf (".");
     }
 

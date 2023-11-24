@@ -581,8 +581,8 @@ long long standAloneSendTrain(struct config* config, bool entropy){
     printf ("Warning: Cannot set HDRINCL!\n");
   
 
-
   sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port);
+  
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   int numbytes = 0;
@@ -617,11 +617,37 @@ long long standAloneSendTrain(struct config* config, bool entropy){
   close(sockfd);
   freeaddrinfo(sockinfo.servinfo); 
   free(buf);
-  //TODO tail syn
-
+  
+  sin.sin_port = htons (config->dest_TCP_tail_port);
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_tail_port);
+  
   //TODO measure Time to receive RTS packets 
+  char datagram[4096];
+  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
+  socklen_t addr_len = sizeof(sin);
+  memset (datagram, 0, 4096);   /* zero out the buffer */
+  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
+    //perror("recvfrom");
+    //return -1;
+    printf("received packet. flags are %d \n", tcph->th_flags);
+    if(tcph->th_flags & TH_RST){
+      printf("foudn RST\n");
+    } 
+  }
+  addr_len = sizeof(sin);
+  memset (datagram, 0, 4096);   /* zero out the buffer */
+  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
+    //perror("recvfrom");
+    //return -1;
+    printf("received packet\n");
+    if(tcph->th_flags & TH_RST){
+      printf("foudn RST\n");
+    } 
+  }
+
 
   //TODO Calculate and return the difference in miliseconds
+  
 }
 
 
@@ -643,7 +669,7 @@ void sendSynPacket (int s, struct sockaddr_in sin, int dport){
 			   at its beginning, and a tcp header structure after
 			   that to write the header values into it */
   struct ip *iph = (struct ip *) datagram;
-  struct tcphdr *tcph = (struct tcphdr *) datagram + sizeof (struct ip);
+  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
  
   memset (datagram, 0, 4096);	/* zero out the buffer */
   
@@ -657,19 +683,19 @@ void sendSynPacket (int s, struct sockaddr_in sin, int dport){
   iph->ip_ttl = 255;
   iph->ip_p = 6;
   iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
-  char host[256];
-  int hostname = gethostname(host, sizeof(host)); //find the host name
-  struct hostent *host_entry = gethostbyname(host); //find host information
-  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
-  printf("Setting IP source to %s\n", ip);
-  iph->ip_src.s_addr = inet_addr (ip);/* SYN's can be blindly spoofed */
+//  char host[256];
+//  int hostname = gethostname(host, sizeof(host)); //find the host name
+//  struct hostent *host_entry = gethostbyname(host); //find host information
+//  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
+  printf("Setting IP source to %s\n", "192.168.128.3");
+  iph->ip_src.s_addr = inet_addr ("192.168.128.3");/* SYN's can be blindly spoofed */
   iph->ip_dst.s_addr = sin.sin_addr.s_addr;
   tcph->th_sport = htons (1234);	/* arbitrary port */
   tcph->th_dport = htons (dport);
   tcph->th_seq = random ();/* in a SYN packet, the sequence is a random */
   tcph->th_ack = 0;/* number, and the ack sequence is 0 in the 1st packet */
   tcph->th_x2 = 0;
-  tcph->th_off = 0;		/* first and only tcp segment */
+  tcph->th_off = 5;		/* first and only tcp segment */
   tcph->th_flags = TH_SYN;	/* initial connection request */
   tcph->th_win = htonl (65535);	/* maximum allowed window size */
   tcph->th_sum = 0;/* if you set a checksum to zero, your kernel's IP stack
