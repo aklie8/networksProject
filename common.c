@@ -1,19 +1,25 @@
-#include <stdio.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#define __USE_BSD       /* use bsd'ish ip header */
+#include <sys/socket.h> /* these headers are for a Linux system, but */
+#include <netinet/in.h> /* the names on other systems are easy to guess.. */
+#include <netinet/ip.h>
+#define __FAVOR_BSD     /* use bsd'ish tcp header */
+#include <netinet/tcp.h>
 #include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <stdio.h>
 #include <arpa/inet.h>
+#include <stdlib.h>
+
+#include <stdbool.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/time.h>
 #include "common.h"
 #include "cJSON.h"
+
 /*
 struct config{
   char [32] server_IP;
@@ -42,7 +48,7 @@ struct config * createConfig(char * json_str){
   config->inter_measurement_time = 15;
   config->UDP_packet_count = 6000;
   config->UDP_packets_TTL = 255;
- 
+  
   cJSON *json = cJSON_Parse(json_str);
   cJSON *subObject;
 
@@ -388,12 +394,19 @@ int createUdpListener(char * port)
 	return sockfd;
 }
 
-int createUdpSender(char * port, char * host)
+struct senderInfo{
+  int sockfd;
+  struct addrinfo* p;
+  struct addrinfo* servinfo;
+};
+
+struct senderInfo createUdpSender(char * port, char * host, bool shouldConnect)
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
 	int numbytes;
+        struct senderInfo result;
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET; // set to AF_INET to use IPv4
@@ -401,7 +414,8 @@ int createUdpSender(char * port, char * host)
 
 	if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
+		result.sockfd = 1;
+                return result;
 	}
 
 	// loop through all the results and make a socket
@@ -417,12 +431,18 @@ int createUdpSender(char * port, char * host)
 
 	if (p == NULL) {
 		fprintf(stderr, "talker: failed to create socket\n");
-		return 2;
+		result.sockfd = 2;
+                return result;
 	}
-
-        connect(sockfd, p->ai_addr, p->ai_addrlen);
-        freeaddrinfo(servinfo); 
-        return sockfd;
+        
+        if(shouldConnect){
+          connect(sockfd, p->ai_addr, p->ai_addrlen);
+        }
+        //freeaddrinfo(servinfo); 
+        result.sockfd = sockfd;
+        result.servinfo = servinfo;
+        result.p = p;
+        return result;
 }
 
 long long getTimeMicros(){
@@ -506,9 +526,10 @@ void sendPacketTrains(struct config * config){
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   int numbytes = 0;
- 
-  int sockfd = createUdpSender(port, config->server_IP);
- 
+  
+  struct senderInfo sockinfo = createUdpSender(port, config->server_IP, true);
+  int sockfd = sockinfo.sockfd;
+
   //Configuring the socket to set non fragmentation
   int val = IP_PMTUDISC_DO;
   setsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
@@ -536,5 +557,128 @@ void sendPacketTrains(struct config * config){
   }
   fclose(randomFile);
   close(sockfd);
+  freeaddrinfo(sockinfo.servinfo); 
   free(buf);
+  
+}
+
+void sendSynPacket (int s, struct sockaddr_in sin, int dport);
+
+long long standAloneSendTrain(struct config* config, bool entropy){
+  int rawSockfd = socket (AF_INET, SOCK_RAW, IPPROTO_TCP);      /* open raw socket */
+  struct sockaddr_in sin;
+                        /* the sockaddr_in containing the dest. address is used
+                           in sendto() to determine the datagrams path */
+
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons (config->dest_TCP_head_port);/* you byte-order >1byte header values to network
+                              byte order (not needed on big endian machines) */
+  sin.sin_addr.s_addr = inet_addr (config->server_IP);
+
+  int one = 1;
+ 
+  if (setsockopt (rawSockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof (one)) < 0)
+    printf ("Warning: Cannot set HDRINCL!\n");
+  
+
+
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port);
+  char port[6];
+  sprintf(port, "%d",config->dest_UDP_port);
+  int numbytes = 0;
+ 
+  struct senderInfo sockinfo = createUdpSender(port, config->server_IP, false);
+  int sockfd = sockinfo.sockfd;
+
+  //Configuring the socket to set non fragmentation
+  int val = IP_PMTUDISC_DO;
+  setsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
+  
+  setsockopt(sockfd, IPPROTO_IP, IP_TTL, &config->UDP_packets_TTL, sizeof(int));
+  char * buf = calloc(1, config->UDP_payload_size + 1);
+
+  FILE * randomFile = fopen("/dev/urandom", "r");  
+  if(randomFile == NULL){
+    printf("failed to open /dev/urandom\n");
+  }
+ 
+  for(short id = 0; id < config->UDP_packet_count; id++){
+    *((short *)buf) = htons(id);
+    if(entropy){
+      fread(buf + 2, config->UDP_payload_size -2, 1, randomFile);
+    }
+    if ((numbytes = sendto(sockfd, buf, config->UDP_payload_size, 0, sockinfo.p->ai_addr, sockinfo.p->ai_addrlen)) == -1) {
+      perror("send");
+      exit(1);
+    }
+  }
+  
+  fclose(randomFile);
+  close(sockfd);
+  freeaddrinfo(sockinfo.servinfo); 
+  free(buf);
+  //TODO tail syn
+
+  //TODO measure Time to receive RTS packets 
+
+  //TODO Calculate and return the difference in miliseconds
+}
+
+
+unsigned short		/* this function generates header checksums */
+csum (unsigned short *buf, int nwords)
+{
+  unsigned long sum;
+  for (sum = 0; nwords > 0; nwords--)
+    sum += *buf++;
+  sum = (sum >> 16) + (sum & 0xffff);
+  sum += (sum >> 16);
+  return ~sum;
+}
+
+void sendSynPacket (int s, struct sockaddr_in sin, int dport){
+  
+  char datagram[4096];	/* this buffer will contain ip header, tcp header,
+			   and payload. we'll point an ip header structure
+			   at its beginning, and a tcp header structure after
+			   that to write the header values into it */
+  struct ip *iph = (struct ip *) datagram;
+  struct tcphdr *tcph = (struct tcphdr *) datagram + sizeof (struct ip);
+ 
+  memset (datagram, 0, 4096);	/* zero out the buffer */
+  
+/* we'll now fill in the ip/tcp header values, see above for explanations */
+  iph->ip_hl = 5;
+  iph->ip_v = 4;
+  iph->ip_tos = 0;
+  iph->ip_len = sizeof (struct ip) + sizeof (struct tcphdr);	/* no payload */
+  iph->ip_id = htonl (54321);	/* the value doesn't matter here */
+  iph->ip_off = 0;
+  iph->ip_ttl = 255;
+  iph->ip_p = 6;
+  iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
+  char host[256];
+  int hostname = gethostname(host, sizeof(host)); //find the host name
+  struct hostent *host_entry = gethostbyname(host); //find host information
+  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
+  printf("Setting IP source to %s\n", ip);
+  iph->ip_src.s_addr = inet_addr (ip);/* SYN's can be blindly spoofed */
+  iph->ip_dst.s_addr = sin.sin_addr.s_addr;
+  tcph->th_sport = htons (1234);	/* arbitrary port */
+  tcph->th_dport = htons (dport);
+  tcph->th_seq = random ();/* in a SYN packet, the sequence is a random */
+  tcph->th_ack = 0;/* number, and the ack sequence is 0 in the 1st packet */
+  tcph->th_x2 = 0;
+  tcph->th_off = 0;		/* first and only tcp segment */
+  tcph->th_flags = TH_SYN;	/* initial connection request */
+  tcph->th_win = htonl (65535);	/* maximum allowed window size */
+  tcph->th_sum = 0;/* if you set a checksum to zero, your kernel's IP stack
+		      should fill in the correct checksum during transmission */
+  tcph->th_urp = 0;
+
+  iph->ip_sum = csum ((unsigned short *) datagram, iph->ip_len >> 1);
+
+  if (sendto (s, datagram,  iph->ip_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0){
+    perror("failed to send\n");	
+  }
 }
