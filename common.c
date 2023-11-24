@@ -1,19 +1,25 @@
-#include <stdio.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#define __USE_BSD       /* use bsd'ish ip header */
+#include <sys/socket.h> /* these headers are for a Linux system, but */
+#include <netinet/in.h> /* the names on other systems are easy to guess.. */
+#include <netinet/ip.h>
+#define __FAVOR_BSD     /* use bsd'ish tcp header */
+#include <netinet/tcp.h>
 #include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <stdio.h>
 #include <arpa/inet.h>
+#include <stdlib.h>
+
+#include <stdbool.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/time.h>
 #include "common.h"
 #include "cJSON.h"
+
 /*
 struct config{
   char [32] server_IP;
@@ -42,7 +48,7 @@ struct config * createConfig(char * json_str){
   config->inter_measurement_time = 15;
   config->UDP_packet_count = 6000;
   config->UDP_packets_TTL = 255;
- 
+  
   cJSON *json = cJSON_Parse(json_str);
   cJSON *subObject;
 
@@ -556,8 +562,27 @@ void sendPacketTrains(struct config * config){
   
 }
 
+void sendSynPacket (int s, struct sockaddr_in sin, int dport);
+
 long long standAloneSendTrain(struct config* config, bool entropy){
-  //TODO head syn
+  int rawSockfd = socket (AF_INET, SOCK_RAW, IPPROTO_TCP);      /* open raw socket */
+  struct sockaddr_in sin;
+                        /* the sockaddr_in containing the dest. address is used
+                           in sendto() to determine the datagrams path */
+
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons (config->dest_TCP_head_port);/* you byte-order >1byte header values to network
+                              byte order (not needed on big endian machines) */
+  sin.sin_addr.s_addr = inet_addr (config->server_IP);
+
+  int one = 1;
+ 
+  if (setsockopt (rawSockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof (one)) < 0)
+    printf ("Warning: Cannot set HDRINCL!\n");
+  
+
+
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port);
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   int numbytes = 0;
@@ -599,3 +624,61 @@ long long standAloneSendTrain(struct config* config, bool entropy){
   //TODO Calculate and return the difference in miliseconds
 }
 
+
+unsigned short		/* this function generates header checksums */
+csum (unsigned short *buf, int nwords)
+{
+  unsigned long sum;
+  for (sum = 0; nwords > 0; nwords--)
+    sum += *buf++;
+  sum = (sum >> 16) + (sum & 0xffff);
+  sum += (sum >> 16);
+  return ~sum;
+}
+
+void sendSynPacket (int s, struct sockaddr_in sin, int dport){
+  
+  char datagram[4096];	/* this buffer will contain ip header, tcp header,
+			   and payload. we'll point an ip header structure
+			   at its beginning, and a tcp header structure after
+			   that to write the header values into it */
+  struct ip *iph = (struct ip *) datagram;
+  struct tcphdr *tcph = (struct tcphdr *) datagram + sizeof (struct ip);
+ 
+  memset (datagram, 0, 4096);	/* zero out the buffer */
+  
+/* we'll now fill in the ip/tcp header values, see above for explanations */
+  iph->ip_hl = 5;
+  iph->ip_v = 4;
+  iph->ip_tos = 0;
+  iph->ip_len = sizeof (struct ip) + sizeof (struct tcphdr);	/* no payload */
+  iph->ip_id = htonl (54321);	/* the value doesn't matter here */
+  iph->ip_off = 0;
+  iph->ip_ttl = 255;
+  iph->ip_p = 6;
+  iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
+  char host[256];
+  int hostname = gethostname(host, sizeof(host)); //find the host name
+  struct hostent *host_entry = gethostbyname(host); //find host information
+  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
+  printf("Setting IP source to %s\n", ip);
+  iph->ip_src.s_addr = inet_addr (ip);/* SYN's can be blindly spoofed */
+  iph->ip_dst.s_addr = sin.sin_addr.s_addr;
+  tcph->th_sport = htons (1234);	/* arbitrary port */
+  tcph->th_dport = htons (dport);
+  tcph->th_seq = random ();/* in a SYN packet, the sequence is a random */
+  tcph->th_ack = 0;/* number, and the ack sequence is 0 in the 1st packet */
+  tcph->th_x2 = 0;
+  tcph->th_off = 0;		/* first and only tcp segment */
+  tcph->th_flags = TH_SYN;	/* initial connection request */
+  tcph->th_win = htonl (65535);	/* maximum allowed window size */
+  tcph->th_sum = 0;/* if you set a checksum to zero, your kernel's IP stack
+		      should fill in the correct checksum during transmission */
+  tcph->th_urp = 0;
+
+  iph->ip_sum = csum ((unsigned short *) datagram, iph->ip_len >> 1);
+
+  if (sendto (s, datagram,  iph->ip_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0){
+    perror("failed to send\n");	
+  }
+}
