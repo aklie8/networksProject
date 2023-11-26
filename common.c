@@ -583,6 +583,25 @@ long long standAloneSendTrain(struct config* config, bool entropy){
 
   sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port);
   
+  char datagram[4096];
+  struct ip * iph =  (struct ip*) datagram;
+  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
+  socklen_t addr_len = sizeof(sin);
+  memset (datagram, 0, 4096);   /* zero out the buffer */
+  
+  long long firstRST = 0;
+  long long secondRST = 0;
+ 
+
+  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
+    //printf("received packet. flags are %d \n", tcph->th_flags);
+    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
+      break;
+    } 
+  }
+  firstRST = getTimeMicros();
+
+
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
   int numbytes = 0;
@@ -619,37 +638,19 @@ long long standAloneSendTrain(struct config* config, bool entropy){
   free(buf);
   
   sin.sin_port = htons (config->dest_TCP_tail_port);
-  sendSynPacket(rawSockfd, sin, config->dest_TCP_tail_port);
-  
-  //TODO measure Time to receive RTS packets 
-  char datagram[4096];
-  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
-  socklen_t addr_len = sizeof(sin);
-  memset (datagram, 0, 4096);   /* zero out the buffer */
-  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
-    //perror("recvfrom");
-    //return -1;
-    printf("received packet. flags are %d \n", tcph->th_flags);
-    if(tcph->th_flags & TH_RST){
-      printf("foudn RST\n");
-    } 
-  }
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_tail_port); 
+   
   addr_len = sizeof(sin);
   memset (datagram, 0, 4096);   /* zero out the buffer */
   while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
-    //perror("recvfrom");
-    //return -1;
-    printf("received packet\n");
-    if(tcph->th_flags & TH_RST){
-      printf("foudn RST\n");
+    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
+      break;
     } 
   }
-
-
-  //TODO Calculate and return the difference in miliseconds
-  
+  secondRST = getTimeMicros();
+  printf("Times: First RST and Second RST %lld %lld \n", firstRST, secondRST);
+  return (secondRST - firstRST) / 1000;
 }
-
 
 unsigned short		/* this function generates header checksums */
 csum (unsigned short *buf, int nwords)
@@ -661,6 +662,88 @@ csum (unsigned short *buf, int nwords)
   sum += (sum >> 16);
   return ~sum;
 }
+
+/*
+USHORT CheckSum(USHORT *buffer, int size)
+{
+    unsigned long cksum=0;
+    while(size >1)
+    {
+        cksum+=*buffer++;
+        size -=sizeof(USHORT);
+    }
+    if(size)
+        cksum += *(UCHAR*)buffer;
+
+    cksum = (cksum >> 16) + (cksum & 0xffff);
+    cksum += (cksum >>16);
+    return (USHORT)(~cksum);
+}
+
+USHORT TcpCheckSum(IP* iph,TCP* tcph,char* data,int size)
+{
+	tcph->Chksum=0;
+	PSD_HEADER psd_header;
+	psd_header.m_daddr=iph->DstAddr;
+	psd_header.m_saddr=iph->SrcAddr;
+	psd_header.m_mbz=0;
+	psd_header.m_ptcl=IPPROTO_TCP;
+	psd_header.m_tcpl=htons(sizeof(TCP)+size);
+
+	char tcpBuf[65536];
+	memcpy(tcpBuf,&psd_header,si
+*/
+
+static uint32_t check_sum_step( uint32_t check_sum, const uint16_t new )
+{
+     uint32_t over_flow;
+
+     check_sum += htons(new);
+     while( check_sum & 0xffff0000 )
+     {   
+          over_flow = check_sum >> 16; 
+          check_sum &= 0x0000ffff;
+          check_sum += over_flow;
+     }   
+     return check_sum;
+}
+
+uint16_t tcp_udp_check_sum_16_rfc( char const * const begin_ptr, char * const end_ptr, uint8_t *src_ip_8, uint8_t const *dest_ip_8, const uint8_t ip_addr_size_bits, const uint8_t protocol )
+{
+     uint16_t const * const begin = (uint16_t*)begin_ptr;
+     uint16_t const * const end = (uint16_t*)end_ptr;
+     uint16_t const * const src_ip_16 = (uint16_t*)src_ip_8;
+     uint16_t const * const dest_ip_16 = (uint16_t*)dest_ip_8;
+     const uint8_t ip_addr_size_bits_16 = ip_addr_size_bits/16;
+     uint16_t const *addr = begin;
+     uint32_t check_sum = 0;
+     uint16_t i;
+
+     for( i=0; i<ip_addr_size_bits_16; i++ )
+     {
+          check_sum = check_sum_step( check_sum, src_ip_16[i] );
+          check_sum = check_sum_step( check_sum, dest_ip_16[i] );
+     }   
+     end_ptr[0] = 0;
+     for( ; addr<end; addr++ )
+     {   
+          check_sum = check_sum_step( check_sum, addr[0] );
+     }   
+     check_sum = check_sum + protocol + ( (uint16_t)( end_ptr - begin_ptr ) );
+     check_sum = check_sum_step( check_sum, 0 );
+     check_sum = ~check_sum;
+     return (uint16_t)check_sum;
+}
+
+/*    int main()
+    {
+    uint8_t src_ipv4_addr[4] = { 192, 168, 10, 11 };
+    uint8_t dest_ipv4_addr[4] = { 192, 168, 10, 22 };
+    char tcp_hdr_payload[] = { 0xb3, 0xa4, 0x2a, 0xf8, 0x00, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0xc9, 0x50, 0x10, 0x1b, 0x5d, 0xc4, 0xad, 0x00, 0x00, 0x62, 0x62, 0x62, 0x62, 0x03 };
+    uint16_t checksum = tcp_udp_check_sum_16_rfc( tcp_hdr_payload, tcp_hdr_payload+20+5, src_ipv4_addr, dest_ipv4_addr, 32, IPPROTO_TCP );
+    printf( "%s %d checksum: %u\n", __func__, __LINE__, checksum );
+    }
+*/
 
 void sendSynPacket (int s, struct sockaddr_in sin, int dport){
   
@@ -702,6 +785,9 @@ void sendSynPacket (int s, struct sockaddr_in sin, int dport){
 		      should fill in the correct checksum during transmission */
   tcph->th_urp = 0;
 
+  
+  tcph -> th_sum =htons(tcp_udp_check_sum_16_rfc((char *) tcph, ((char *) tcph) + 20, (char *)&iph->ip_src.s_addr, (char *) &iph->ip_dst.s_addr, 32, IPPROTO_TCP));
+  
   iph->ip_sum = csum ((unsigned short *) datagram, iph->ip_len >> 1);
 
   if (sendto (s, datagram,  iph->ip_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0){

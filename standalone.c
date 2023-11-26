@@ -39,6 +39,9 @@ int main(int argc, char * argv[]){
   sleep(config->inter_measurement_time);
   long long secondTrainDuration = standAloneSendTrain(config, true);
  
+  printf("First duration betwen RST %lld\n", firstTrainDuration);
+  printf("Second duration betwen RST %lld\n", secondTrainDuration);
+
   if (firstTrainDuration < 0 || secondTrainDuration < 0){
     printf("Failed to detect due to insufficient information\n");  
   }
