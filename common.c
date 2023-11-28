@@ -574,32 +574,57 @@ struct workerArgs{
 };
 
 void *processRSTPackets(void *argp){
+/*  struct timeval timeout;
+      timeout.tv_sec = 5;
+      timeout.tv_usec = 0;
+
+      if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout,sizeof timeout) < 0){
+        perror("setsockopt failed\n");
+      }
+    }
+*/
   struct workerArgs *args = argp;
   args->firstRST = 0;
   args->secondRST = 0;
- 
+  
+  struct timeval timeout;
+  timeout.tv_sec = 15;
+  timeout.tv_usec = 0;
+
+  if (setsockopt (args->rawSockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout,sizeof timeout) < 0){
+    perror("setsockopt failed\n");
+  }
+
   char datagram[4096];
   struct ip * iph =  (struct ip*) datagram;
   struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
   socklen_t addr_len = sizeof(args->sin);
+  int numBytes = 0;
   memset (datagram, 0, 4096);   /* zero out the buffer */
 
-  while(recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len) >= 0){
+  while((numBytes = recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len)) >= 0){
     if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
       break;
     } 
+  }
+  if(numBytes < 0){
+    args-> firstRST = -1;
+    return NULL;
   }
   args->firstRST = getTimeMicros();
 
   addr_len = sizeof(args->sin);
   memset (datagram, 0, 4096);   /* zero out the buffer */
-  while(recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len) >= 0){
+  while((numBytes = recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len)) >= 0){
     if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
       break;
     } 
   }
+  if(numBytes < 0){
+    args-> secondRST = -1;
+    return NULL;
+  }
   args->secondRST = getTimeMicros();
-
 }
 
 void sendSynPacket (int s, struct sockaddr_in sin, int dport, char* host_IP);
@@ -679,6 +704,10 @@ long long standAloneSendTrain(struct config* config, bool entropy){
   pthread_join(worker, NULL); 
    
   printf("Times: First RST and Second RST %lld %lld \n", args.firstRST, args.secondRST);
+  
+  if(args.firstRST == -1 || args.secondRST == -1){
+    return -1;
+  }
   return (args.secondRST - args.firstRST) / 1000;
 }
 
