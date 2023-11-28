@@ -1,6 +1,7 @@
 #include <stdbool.h>
 
 struct config{
+  char host_IP[32]; /* which of the host ip's to use in the standalone application */
   char server_IP [32];
   int src_port;
   int dest_UDP_port;

@@ -1,8 +1,8 @@
-#define __USE_BSD       /* use bsd'ish ip header */
-#include <sys/socket.h> /* these headers are for a Linux system, but */
-#include <netinet/in.h> /* the names on other systems are easy to guess.. */
+#define __USE_BSD       
+#include <sys/socket.h> 
+#include <netinet/in.h> 
 #include <netinet/ip.h>
-#define __FAVOR_BSD     /* use bsd'ish tcp header */
+#define __FAVOR_BSD    
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <string.h>
@@ -19,9 +19,10 @@
 #include <sys/time.h>
 #include "common.h"
 #include "cJSON.h"
-
+#include <pthread.h>
 /*
 struct config{
+  char host_IP[32]; 
   char [32] server_IP;
   int src_port;
   int dest_UDP_port;
@@ -37,7 +38,8 @@ struct config{
 */
 struct config * createConfig(char * json_str){
   struct config * config = (struct config *) calloc(1, sizeof(struct config));
- 
+  
+  config->host_IP[0] = '\0'; 
   config->src_port = 9876;
   config->dest_UDP_port = 8765;
   config->dest_TCP_head_port = 9999;
@@ -65,6 +67,13 @@ struct config * createConfig(char * json_str){
     printf("Server IP unspecified in json\n");
     return NULL;
   }
+
+  if(subObject = cJSON_GetObjectItem(json, "host_IP")){
+    if(cJSON_IsString(subObject)){
+      strcpy(config->host_IP, subObject->valuestring);
+    }
+  }
+
 
   if(subObject = cJSON_GetObjectItem(json, "src_port")){
     if(cJSON_IsNumber(subObject)){
@@ -134,7 +143,6 @@ void freeConfig (struct config * config){
   free(config);
 }
 
-// get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
 	if (sa->sa_family == AF_INET) {
@@ -156,7 +164,7 @@ int createServerTCPSocket(char * port)
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE; // use my IP
+	hints.ai_flags = AI_PASSIVE; 
 
 	if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
@@ -186,7 +194,7 @@ int createServerTCPSocket(char * port)
 		break;
 	}
 
-	freeaddrinfo(servinfo); // all done with this structure
+	freeaddrinfo(servinfo); 
 
 	if (p == NULL)  {
 		fprintf(stderr, "server: failed to bind\n");
@@ -233,7 +241,6 @@ int createClientTCPSocket(char * port, char * ip_addr)
 			close(sockfd);
 			continue;
 		}
-
 		break;
 	}
 
@@ -293,7 +300,6 @@ void sendConfig (struct config * config, char * json_str){
     exit(1);
   }
   
-
   printf("config sent \n");
 
   close(sockfd);
@@ -559,13 +565,58 @@ void sendPacketTrains(struct config * config){
   close(sockfd);
   freeaddrinfo(sockinfo.servinfo); 
   free(buf);
-  
+}
+struct workerArgs{
+  long long firstRST;
+  long long secondRST;
+  int rawSockfd;
+  struct sockaddr_in sin;
+};
+
+void *processRSTPackets(void *argp){
+  struct workerArgs *args = argp;
+  args->firstRST = 0;
+  args->secondRST = 0;
+ 
+  char datagram[4096];
+  struct ip * iph =  (struct ip*) datagram;
+  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
+  socklen_t addr_len = sizeof(args->sin);
+  memset (datagram, 0, 4096);   /* zero out the buffer */
+
+  while(recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len) >= 0){
+    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
+      break;
+    } 
+  }
+  args->firstRST = getTimeMicros();
+
+  addr_len = sizeof(args->sin);
+  memset (datagram, 0, 4096);   /* zero out the buffer */
+  while(recvfrom(args->rawSockfd, datagram, 4096, 0, (struct sockaddr *) &args->sin, &addr_len) >= 0){
+    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
+      break;
+    } 
+  }
+  args->secondRST = getTimeMicros();
+
 }
 
-void sendSynPacket (int s, struct sockaddr_in sin, int dport);
+void sendSynPacket (int s, struct sockaddr_in sin, int dport, char* host_IP);
+
 
 long long standAloneSendTrain(struct config* config, bool entropy){
+  if(config->host_IP[0] == '\0'){
+    printf("host_IP field of JSON config file was not set. Please set that feild to the IP address the host should use.\n");
+    exit(-1);
+  }
   int rawSockfd = socket (AF_INET, SOCK_RAW, IPPROTO_TCP);      /* open raw socket */
+   
+  if(rawSockfd == -1){
+    printf("failed to open raw socket. Make sure to run with super user permissions!\n");
+    exit(-1);
+  }
+
   struct sockaddr_in sin;
                         /* the sockaddr_in containing the dest. address is used
                            in sendto() to determine the datagrams path */
@@ -579,28 +630,14 @@ long long standAloneSendTrain(struct config* config, bool entropy){
  
   if (setsockopt (rawSockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof (one)) < 0)
     printf ("Warning: Cannot set HDRINCL!\n");
-  
-
-  sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port);
-  
-  char datagram[4096];
-  struct ip * iph =  (struct ip*) datagram;
-  struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
-  socklen_t addr_len = sizeof(sin);
-  memset (datagram, 0, 4096);   /* zero out the buffer */
-  
-  long long firstRST = 0;
-  long long secondRST = 0;
  
-
-  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
-    //printf("received packet. flags are %d \n", tcph->th_flags);
-    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
-      break;
-    } 
-  }
-  firstRST = getTimeMicros();
-
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_head_port, config->host_IP);
+      
+  pthread_t worker;
+  struct workerArgs args;
+  args.rawSockfd = rawSockfd;
+  args.sin = sin;
+  pthread_create(&worker, NULL, &processRSTPackets, &args); 
 
   char port[6];
   sprintf(port, "%d",config->dest_UDP_port);
@@ -638,18 +675,11 @@ long long standAloneSendTrain(struct config* config, bool entropy){
   free(buf);
   
   sin.sin_port = htons (config->dest_TCP_tail_port);
-  sendSynPacket(rawSockfd, sin, config->dest_TCP_tail_port); 
+  sendSynPacket(rawSockfd, sin, config->dest_TCP_tail_port, config->host_IP);
+  pthread_join(worker, NULL); 
    
-  addr_len = sizeof(sin);
-  memset (datagram, 0, 4096);   /* zero out the buffer */
-  while(recvfrom(rawSockfd, datagram, 4096, 0, (struct sockaddr *) &sin, &addr_len) >= 0){
-    if(iph->ip_p == IPPROTO_TCP && (tcph->th_flags & TH_RST)){
-      break;
-    } 
-  }
-  secondRST = getTimeMicros();
-  printf("Times: First RST and Second RST %lld %lld \n", firstRST, secondRST);
-  return (secondRST - firstRST) / 1000;
+  printf("Times: First RST and Second RST %lld %lld \n", args.firstRST, args.secondRST);
+  return (args.secondRST - args.firstRST) / 1000;
 }
 
 unsigned short		/* this function generates header checksums */
@@ -662,37 +692,6 @@ csum (unsigned short *buf, int nwords)
   sum += (sum >> 16);
   return ~sum;
 }
-
-/*
-USHORT CheckSum(USHORT *buffer, int size)
-{
-    unsigned long cksum=0;
-    while(size >1)
-    {
-        cksum+=*buffer++;
-        size -=sizeof(USHORT);
-    }
-    if(size)
-        cksum += *(UCHAR*)buffer;
-
-    cksum = (cksum >> 16) + (cksum & 0xffff);
-    cksum += (cksum >>16);
-    return (USHORT)(~cksum);
-}
-
-USHORT TcpCheckSum(IP* iph,TCP* tcph,char* data,int size)
-{
-	tcph->Chksum=0;
-	PSD_HEADER psd_header;
-	psd_header.m_daddr=iph->DstAddr;
-	psd_header.m_saddr=iph->SrcAddr;
-	psd_header.m_mbz=0;
-	psd_header.m_ptcl=IPPROTO_TCP;
-	psd_header.m_tcpl=htons(sizeof(TCP)+size);
-
-	char tcpBuf[65536];
-	memcpy(tcpBuf,&psd_header,si
-*/
 
 static uint32_t check_sum_step( uint32_t check_sum, const uint16_t new )
 {
@@ -735,17 +734,7 @@ uint16_t tcp_udp_check_sum_16_rfc( char const * const begin_ptr, char * const en
      return (uint16_t)check_sum;
 }
 
-/*    int main()
-    {
-    uint8_t src_ipv4_addr[4] = { 192, 168, 10, 11 };
-    uint8_t dest_ipv4_addr[4] = { 192, 168, 10, 22 };
-    char tcp_hdr_payload[] = { 0xb3, 0xa4, 0x2a, 0xf8, 0x00, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0xc9, 0x50, 0x10, 0x1b, 0x5d, 0xc4, 0xad, 0x00, 0x00, 0x62, 0x62, 0x62, 0x62, 0x03 };
-    uint16_t checksum = tcp_udp_check_sum_16_rfc( tcp_hdr_payload, tcp_hdr_payload+20+5, src_ipv4_addr, dest_ipv4_addr, 32, IPPROTO_TCP );
-    printf( "%s %d checksum: %u\n", __func__, __LINE__, checksum );
-    }
-*/
-
-void sendSynPacket (int s, struct sockaddr_in sin, int dport){
+void sendSynPacket (int s, struct sockaddr_in sin, int dport, char *host_IP){
   
   char datagram[4096];	/* this buffer will contain ip header, tcp header,
 			   and payload. we'll point an ip header structure
@@ -770,8 +759,8 @@ void sendSynPacket (int s, struct sockaddr_in sin, int dport){
 //  int hostname = gethostname(host, sizeof(host)); //find the host name
 //  struct hostent *host_entry = gethostbyname(host); //find host information
 //  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
-  printf("Setting IP source to %s\n", "192.168.128.3");
-  iph->ip_src.s_addr = inet_addr ("192.168.128.3");/* SYN's can be blindly spoofed */
+
+  iph->ip_src.s_addr = inet_addr (host_IP);
   iph->ip_dst.s_addr = sin.sin_addr.s_addr;
   tcph->th_sport = htons (1234);	/* arbitrary port */
   tcph->th_dport = htons (dport);
