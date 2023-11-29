@@ -20,22 +20,7 @@
 #include "common.h"
 #include "cJSON.h"
 #include <pthread.h>
-/*
-struct config{
-  char host_IP[32]; 
-  char [32] server_IP;
-  int src_port;
-  int dest_UDP_port;
-  int dest_TCP_head_port;
-  int dest_TCP_tail_port;
-  int TCP_pre_probing_port;
-  int TCP_post_probing_port;
-  int UDP_payload_size;
-  int inter_measurement_time;
-  int UDP_packet_count;
-  int UDP_packets_TTL;      
-}
-*/
+
 struct config * createConfig(char * json_str){
   struct config * config = (struct config *) calloc(1, sizeof(struct config));
   
@@ -160,7 +145,6 @@ int createServerTCPSocket(char * port)
 	char s[INET6_ADDRSTRLEN];
 	int rv;
         
-
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -253,11 +237,9 @@ int createClientTCPSocket(char * port, char * ip_addr)
 			s, sizeof s);
 	printf("client: connecting to %s\n", s);
 
-	freeaddrinfo(servinfo); // all done with this structure
-
+	freeaddrinfo(servinfo); 
         return sockfd;
 }
-
 
 struct config * receiveConfig (char * port){
   char s[INET6_ADDRSTRLEN];
@@ -366,14 +348,14 @@ int createUdpListener(char * port)
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET; // set to AF_INET to use IPv4
 	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_flags = AI_PASSIVE; // use my IP
+	hints.ai_flags = AI_PASSIVE;
 
 	if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		exit(1);;
 	}
 
-	// loop through all the results and bind to the first we can
+	// loop through all the results and bind to the first 
 	for(p = servinfo; p != NULL; p = p->ai_next) {
 		if ((sockfd = socket(p->ai_family, p->ai_socktype,
 				p->ai_protocol)) == -1) {
@@ -394,9 +376,7 @@ int createUdpListener(char * port)
 		fprintf(stderr, "listener: failed to bind socket\n");
 		exit(2);
 	}
-
 	freeaddrinfo(servinfo);
-	
 	return sockfd;
 }
 
@@ -408,7 +388,7 @@ struct senderInfo{
 
 struct senderInfo createUdpSender(char * port, char * host, bool shouldConnect)
 {
-	int sockfd;
+        int sockfd;
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
 	int numbytes;
@@ -444,7 +424,7 @@ struct senderInfo createUdpSender(char * port, char * host, bool shouldConnect)
         if(shouldConnect){
           connect(sockfd, p->ai_addr, p->ai_addrlen);
         }
-        //freeaddrinfo(servinfo); 
+         
         result.sockfd = sockfd;
         result.servinfo = servinfo;
         result.p = p;
@@ -574,15 +554,6 @@ struct workerArgs{
 };
 
 void *processRSTPackets(void *argp){
-/*  struct timeval timeout;
-      timeout.tv_sec = 5;
-      timeout.tv_usec = 0;
-
-      if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout,sizeof timeout) < 0){
-        perror("setsockopt failed\n");
-      }
-    }
-*/
   struct workerArgs *args = argp;
   args->firstRST = 0;
   args->secondRST = 0;
@@ -647,8 +618,7 @@ long long standAloneSendTrain(struct config* config, bool entropy){
                            in sendto() to determine the datagrams path */
 
   sin.sin_family = AF_INET;
-  sin.sin_port = htons (config->dest_TCP_head_port);/* you byte-order >1byte header values to network
-                              byte order (not needed on big endian machines) */
+  sin.sin_port = htons (config->dest_TCP_head_port);
   sin.sin_addr.s_addr = inet_addr (config->server_IP);
 
   int one = 1;
@@ -765,16 +735,13 @@ uint16_t tcp_udp_check_sum_16_rfc( char const * const begin_ptr, char * const en
 
 void sendSynPacket (int s, struct sockaddr_in sin, int dport, char *host_IP){
   
-  char datagram[4096];	/* this buffer will contain ip header, tcp header,
-			   and payload. we'll point an ip header structure
-			   at its beginning, and a tcp header structure after
-			   that to write the header values into it */
+  char datagram[4096];	
   struct ip *iph = (struct ip *) datagram;
   struct tcphdr *tcph = (struct tcphdr *) (datagram + sizeof (struct ip));
  
   memset (datagram, 0, 4096);	/* zero out the buffer */
   
-/* we'll now fill in the ip/tcp header values, see above for explanations */
+/* filling in the ip/tcp header values*/
   iph->ip_hl = 5;
   iph->ip_v = 4;
   iph->ip_tos = 0;
@@ -784,11 +751,6 @@ void sendSynPacket (int s, struct sockaddr_in sin, int dport, char *host_IP){
   iph->ip_ttl = 255;
   iph->ip_p = 6;
   iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
-//  char host[256];
-//  int hostname = gethostname(host, sizeof(host)); //find the host name
-//  struct hostent *host_entry = gethostbyname(host); //find host information
-//  char * ip = inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0]));
-
   iph->ip_src.s_addr = inet_addr (host_IP);
   iph->ip_dst.s_addr = sin.sin_addr.s_addr;
   tcph->th_sport = htons (1234);	/* arbitrary port */
