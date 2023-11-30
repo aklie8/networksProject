@@ -14,7 +14,7 @@ Code Structure:
 
 Installations:
 GCC: sudo install gcc
-Wireshak: sudo /bin/wireshark
+Wireshak: /bin/wireshark
 Git: sudo install git 
 
 Building and Running the Code:
