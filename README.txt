@@ -1,20 +1,33 @@
-## Developer: 
+## Developer
+ 
   Aklile Tesfaye
 
+## Table of contents 
+
+ - Porject Overview
+ - Installations
+ - Code Structure
+ - Building & Running the Code
+ - TroubleShooting & FAQ
+ - Incomplete Required Features
+
 ## Project Overview:
+
   This README provides essential information for the "End-to-End Detection of Network Compression" 
   project for the CS336 Computer Networks course, Fall 2023.
 
-## My project can be found by following the command:
+## My project code can be found by following the command:
+
   git clone git@github.com:aklie8/networksProject.git
   
   Alterntaively copy & paste my Github Repository URL for this project.
   The URL: https://github.com/aklie8/networksProject
  
 ## Installations:
-GCC: sudo apt install gcc
-Wireshak: /bin/wireshark
-Git: sudo apt install git
+
+   GCC: sudo apt install gcc
+   Wireshak: /bin/wireshark
+   Git: sudo apt install git
 
 ## Code Structure:
  
@@ -26,9 +39,11 @@ Git: sudo apt install git
  
 
 ## Building and Running the Code:
+
 - Ensure you have GCC installed (version 7.0 or later).
 
 ## Build and Run the Client Application:
+
   # On the client system locate the directory
   cd networksProject
    
@@ -39,6 +54,7 @@ Git: sudo apt install git
   ./client newConfig.json
 
 ## Build and Run the Server Application:
+
   # On the server system locate the directory 
   cd networksProject
 
@@ -49,6 +65,7 @@ Git: sudo apt install git
   ./server 7000
 
 ## Build and Run the Standalone Application:
+
   # On the client system
   cd networksProject
  
@@ -58,9 +75,10 @@ Git: sudo apt install git
   # Execution command to run the project
   sudo ./standalone newconfig.json
 
-## TroubleShooting:
+## TroubleShooting & FAQ:
 
  Setting up a Git Repository for the project:
+
    When create a new repository on my GitHub for the project I followed the commands on 
    provided through this link: https://gist.github.com/alexpchin/102854243cd066f8b88e
    When running "git commit -m 'First commit'" on UTM Terminal I recived the error "Author identity unknown"
@@ -83,6 +101,7 @@ Git: sudo apt install git
   
  
  Part 2 RawSocket: 
+
    I have the raw socket working but when I am running Wireshark from the server
    I can see the SYN packets received from the client however the server does not 
    respond with an RST packet it just sends an ICMP packets saying "unreachable". 
