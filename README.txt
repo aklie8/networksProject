@@ -30,13 +30,70 @@
    Git: sudo apt install git
 
 ## Code Structure:
- 
-├── common.h               # Header file containing common structures and function declarations
+_
+├── common.c               # Source file containing common utility functions
+├── common.h               # Header file with structures and functions for network configuration
 ├── cJSON.c                # cJSON library source file for JSON parsing
-├── cJSON.h                # cJSON library header file
-├── common.c               # Code used for network testing, focusing on measuring network characteristics, checking for compression, and sending/receiving configuration information over TCP connections. It involves both TCP and UDP socket programming, threading, and raw socket usage.
-└── README.txt             # Documentation file explaining the code and its usage
+├── cJSON.h                # cJSON library header file with JSON parsing function declarations
+├── client.c               # Source file for the client application's main functionality
+├── client.h               # Header file for client-specific structures and functions
+├── standalone.c           # Source file for the standalone client application's main functionality
+├── server.c               # Source file for the server application's main functionality
+├── newConfig.json         # Example JSON configuration file for the application
+├── README.txt             # Documentation file explaining the code organization and its usage
+
+-- common.c Code used for network testing, focusing on measuring network characteristics,
+                             checking for compression, and sending/receiving configuration information
+                             over TCP connections. It involves TCP socket programming, threading, checksum
+                             caclulation and raw socket usage.
  
+-- client.c contains the source code for the client-side application. 
+It handles tasks such as reading a JSON configuration file, sending data to the server, and interacting
+with the server.
+
+-- common.h provides a clear interface for the common functionalities in the project. 
+It includes functions for creating, freeing, sending, and receiving configurations, 
+as well as handling results and packet trains. 
+The struct config defines the configuration parameters used throughout the code.
+
+-- server.c is a crucial source file responsible for the server-side functionality. 
+It includes necessary headers, validates input arguments, receives configuration information 
+from clients, processes packet trains, detects compression, and sends results back to clients.
+Important notes: Compile and run server.c to initiate the server. 
+                 Ensure that the correct TCP port is provided as a command line argument.
+
+-- standalone.c serves as the standalone client application that reads a JSON configuration file, 
+establishes a connection with the server, and conducts two consecutive packet train transmissions. 
+It then analyzes the time durations between RST packets to detect potential compression.
+Important Notes: Compile and run standalone.c with the JSON configuration file as a command line argument
+                 to ensure standalone client's functionalities and the sequence of actions involved in 
+                 compression detection are correct.
+
+-- newConfig.JSON is a JSON file used to configure the network parameters for the client/server 
+communication and standalone application. It specifies the IP addresses for both the server and host 
+in the network. Important Notes: When running the standalone.c and client.c appliactions,
+                 provide newConfig.JSON as a command line argument.
+
+## Configuration (Common.h)
+# Structure to hold configuration parameters
+struct config {
+  char host_IP[32];
+  char server_IP[32];
+  int src_port;
+  int dest_UDP_port;
+  int dest_TCP_head_port;
+  int dest_TCP_tail_port;
+  int TCP_pre_probing_port;
+  int TCP_post_probing_port;
+  int UDP_payload_size;
+  int inter_measurement_time;
+  int UDP_packet_count;
+  int UDP_packets_TTL;
+};
+
+# Important Notes 
+  This holds configuration parameters for the application, such as IP addresses, port numbers, payload size,
+  and timing intervals.
 
 ## Building and Running the Code:
 
@@ -119,6 +176,14 @@
    around htons() function.
 
 ## Incomplete Required Features:
+
   - Coding Style
   - Error Handling: 
      Improve the code to handle more unexpected scenarios and provide informative error messages.
+
+## Important Notes 
+
+Superuser Permissions: 
+  Some parts of the code, such as raw socket creation, may require superuser permissions to run successfully. 
+  Ensure the program is executed with the necessary privileges.
+
