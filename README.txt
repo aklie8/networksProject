@@ -16,6 +16,7 @@
   This README provides essential information for the "End-to-End Detection of Network Compression" 
   project for the CS336 Computer Networks course, Fall 2023.
 
+(REMOVE)
 ## My project code can be found by following the command:
 
   git clone git@github.com:aklie8/networksProject.git
@@ -44,8 +45,8 @@ _
 
 -- common.c Code used for network testing, focusing on measuring network characteristics,
                              checking for compression, and sending/receiving configuration information
-                             over TCP connections. It involves TCP socket programming, threading, checksum
-                             caclulation and raw socket usage.
+                             over TCP connections. It involves both TCP and UDP socket programming, threading
+                             checksum caclulation and raw socket usage.
  
 -- client.c contains the source code for the client-side application. 
 It handles tasks such as reading a JSON configuration file, sending data to the server, and interacting
@@ -74,10 +75,11 @@ communication and standalone application. It specifies the IP addresses for both
 in the network. Important Notes: When running the standalone.c and client.c appliactions,
                  provide newConfig.JSON as a command line argument.
 
+(COMMENT ABOUT EACH PARAMENTER IS USED IN PROJECT)
 ## Configuration (Common.h)
 # Structure to hold configuration parameters
 struct config {
-  char host_IP[32];
+  char host_IP[32];      
   char server_IP[32];
   int src_port;
   int dest_UDP_port;
@@ -119,7 +121,7 @@ struct config {
   gcc -o server server.c common.c cJSON.c  
   
   # Execution command to run the project
-  ./server 7000
+  ./server 7777
 
 ## Build and Run the Standalone Application:
 
@@ -178,8 +180,6 @@ struct config {
 ## Incomplete Required Features:
 
   - Coding Style
-  - Error Handling: 
-     Improve the code to handle more unexpected scenarios and provide informative error messages.
 
 ## Important Notes 
 
@@ -187,3 +187,5 @@ Superuser Permissions:
   Some parts of the code, such as raw socket creation, may require superuser permissions to run successfully. 
   Ensure the program is executed with the necessary privileges.
 
+## Acknowledments
+  
