@@ -189,7 +189,7 @@ struct config *createConfig(char *json_str) {
    around htons() function.
 
 ## Incomplete Required Features:
-    - Coding Style
+    - Codying style in some files but not all
 
 ## Important Notes 
     - Superuser Permissions: Some parts of the code, such as raw socket creation, may require superuser permissions to run successfully. 
